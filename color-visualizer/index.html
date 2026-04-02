@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wall Color Visualizer - AP</title>
+    <style>
+      :root {
+        --primary: #2c3e50;
+        --bg: #f5f6fa;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background-color: var(--bg);
+        color: var(--primary);
+        display: flex;
+        height: 100vh;
+      }
+
+      /* Sidebar */
+      .sidebar {
+        width: 320px;
+        background: white;
+        padding: 20px;
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        z-index: 10;
+      }
+      h3 {
+        margin-top: 0;
+      }
+
+      /* Color Grid */
+      .color-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-bottom: 30px;
+      }
+      .color-swatch {
+        width: 100%;
+        aspect-ratio: 1;
+        border-radius: 8px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: transform 0.2s;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      }
+      .color-swatch:hover,
+      .color-swatch.selected {
+        transform: scale(1.1);
+        border-color: #2c3e50;
+      }
+
+      /* Upload */
+      .upload-section {
+        margin-top: auto;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+      }
+      .upload-btn {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        background: var(--primary);
+        color: white;
+        text-align: center;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        box-sizing: border-box;
+      }
+      input[type="file"] {
+        display: none;
+      }
+
+      #loading {
+        display: none;
+        color: #e67e22;
+        font-weight: bold;
+        text-align: center;
+        margin-top: 10px;
+        font-size: 14px;
+      }
+
+      .visualizer {
+        flex: 1;
+        position: relative;
+        background-color: #e0e0e0;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .room-image {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain; /* Important so image isn't stretched */
+      }
+
+      .color-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: transparent;
+        mix-blend-mode: multiply;
+        pointer-events: none;
+        transition: background-color 0.3s ease;
+
+        /* These three lines are crucial for applying the mask */
+        -webkit-mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar">
+      <h2>Wall Color Visualizer - AP</h2>
+
+      <h3>Select Shade</h3>
+      <div class="color-grid" id="colorGrid"></div>
+
+      <div class="upload-section">
+        <label class="upload-btn">
+          Upload Room Photo
+          <input type="file" id="imageUpload" accept="image/*" />
+        </label>
+        <div id="loading">Running AI Segmentation...</div>
+      </div>
+    </div>
+
+    <div class="visualizer">
+      <img
+        id="roomImage"
+        class="room-image"
+        src=""
+        alt="Upload a photo to begin"
+      />
+      <div id="colorOverlay" class="color-overlay"></div>
+    </div>
+
+    <script>
+      const colors = [
+        "#FDF6E3",
+        "#F4E8D1",
+        "#E8D5B5",
+        "#Dbb99f",
+        "#EFE4D8",
+        "#dfc8b4",
+        "#C9A68D",
+        "#A67B5B",
+        "#F0E6D2",
+        "#D3C4A1",
+        "#8B7355",
+        "#6B543A",
+        "#E8DED1",
+        "#B8A99A",
+        "#7A6A5E",
+        "#4A4036",
+      ];
+      const colorGrid = document.getElementById("colorGrid");
+      const colorOverlay = document.getElementById("colorOverlay");
+      const roomImage = document.getElementById("roomImage");
+      const imageUpload = document.getElementById("imageUpload");
+      const loadingIndicator = document.getElementById("loading");
+
+      // Render Colors
+      colors.forEach((color) => {
+        const swatch = document.createElement("div");
+        swatch.className = "color-swatch";
+        swatch.style.backgroundColor = color;
+        swatch.onclick = () => {
+          document
+            .querySelectorAll(".color-swatch")
+            .forEach((s) => s.classList.remove("selected"));
+          swatch.classList.add("selected");
+          colorOverlay.style.backgroundColor = color;
+        };
+        colorGrid.appendChild(swatch);
+      });
+
+      // Handle File Upload & AI Request
+      imageUpload.addEventListener("change", async function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // 1. Show the image immediately
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          roomImage.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+
+        // 2. Prepare payload for the Python backend
+        const formData = new FormData();
+        formData.append("image", file);
+
+        loadingIndicator.style.display = "block";
+        colorOverlay.style.webkitMaskImage = "none"; // Reset mask
+
+        try {
+          // Send to local Flask server
+          const response = await fetch("http://localhost:5000/segment", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            // Apply the transparent PNG mask to the CSS overlay
+            colorOverlay.style.webkitMaskImage = `url(${data.mask_url})`;
+          } else {
+            alert("AI Error: " + data.error);
+          }
+        } catch (err) {
+          console.error(err);
+          alert(
+            "Error connecting to the AI backend. Is the Python server running?",
+          );
+        } finally {
+          loadingIndicator.style.display = "none";
+        }
+      });
+    </script>
+  </body>
+</html>

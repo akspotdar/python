@@ -1,2 +1,8 @@
 pandas
 numpy
+flask
+flask-cors
+transformers
+torch
+torchvision
+Pillow
